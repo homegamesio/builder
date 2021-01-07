@@ -22,19 +22,12 @@ const getReqBody = (req, cb) => {
 
 const server = https.createServer(options, (req, res) => {
     if (req.method === 'POST') {
+        res.writeHead(200);
+        res.end('idk yet');
         if (req.url === '/event') {
             getReqBody(req, (_body) => {
                 const body = JSON.parse(_body);
-                if (body.username && body.code) {
-                    confirmUser(body.username, body.code).then((data) => {
-                        res.writeHead(200, {'Content-Type': 'application/json'});
-
-                        res.end(JSON.stringify(data));
-                    });
-                } else {
-                    res.writeHead(400, {'Content-Type': 'text/plain'});
-                    res.end('Signup requires username & code');
-                }
+                console.log('event body');
             });
         }
     } else if (req.method === 'GET') {
@@ -43,6 +36,10 @@ const server = https.createServer(options, (req, res) => {
             res.end('ok');
         }
     }
+
+    res.writeHead(404);
+    res.end('Not found');
+
 });
 
 const HTTPS_PORT = 443;
