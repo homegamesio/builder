@@ -6,6 +6,8 @@ const config = require('./config');
 const path = require('path');
 const aws = require('aws-sdk');
 const { spawn } = require('child_process');
+const zlib = require('zlib');
+const archiver = require('archiver');
 
 const options = {
   key: fs.readFileSync(config.SSL_KEY_PATH),
@@ -22,6 +24,33 @@ const getReqBody = (req, cb) => {
         cb && cb(_body);
     });
 };
+
+const getBuildInfo = (commitHash) => new Promise((resolve, reject) => {
+	const dynamoClient = new aws.DynamoDB({region: config.AWS_REGION});
+
+	const params = {
+		TableName: config.BUILD_TABLE_NAME,
+		ProjectionExpression: '#commitHash, mac_url, windows_url, linux_url',
+		FilterExpression: '#commitHash = :commitHash',
+		ExpressionAttributeNames: {
+			'#commitHash': 'commit_hash'
+		},
+		ExpressionAttributeValues: {
+			':commitHash': {
+				'S': commitHash
+			}
+		}
+
+	};
+
+	dynamoClient.scan(params, (err, data) => {
+		if (err) {
+			reject(err);
+		} else {
+			resolve(data.Items[0])
+		}
+	});
+});
 
 const getBuilds = (limit = 10) => new Promise((resolve, reject) => {
 	const dynamoClient = new aws.DynamoDB({region: config.AWS_REGION});
@@ -63,7 +92,77 @@ const wrapHtml = (response) => {
 	return `<!doctype html><html><body>${response}</body></html>`;
 };
 
+const download = (url, cb) => {
+	const module = url.startsWith('https') ? https : http;
+	module.get(url, cb);
+};
+
+const getBuild = (commitHash) => new Promise((resolve, reject) => {
+	const buildPath = `${config.TEMP_DATA_DIR}/hg_builds/${commitHash}`;
+	if (!fs.existsSync(buildPath)) {
+		fs.mkdirSync(buildPath);
+		getBuildInfo(commitHash).then(buildData => {
+			if(!buildData) {
+				reject();
+			} else {
+				download(buildData.mac_url.S, macDataBuf => {
+					macDataBuf.pipe(fs.createWriteStream(`${buildPath}/homegames-macos`)).on('finish', () => {
+						download(buildData.windows_url.S, windowsDataBuf => {
+							windowsDataBuf.pipe(fs.createWriteStream(`${buildPath}/homegames-win.exe`)).on('finish', () => {
+								download(buildData.linux_url.S, linuxDataBuf => {
+									linuxDataBuf.pipe(fs.createWriteStream(`${buildPath}/homegames-linux`)).on('finish', () => {
+										fs.chmodSync(`${buildPath}/homegames-macos`, '555');
+										fs.chmodSync(`${buildPath}/homegames-win.exe`, '555');
+										fs.chmodSync(`${buildPath}/homegames-linux`, '555');
+										const archive = archiver('zip', {
+
+										});
+
+										const tmpDir = '/tmp/' + Date.now()
+
+										fs.mkdirSync(tmpDir);
+
+										const output = fs.createWriteStream(`${tmpDir}/build.zip`);
+										output.on('close', () => {
+
+											fs.renameSync(`${tmpDir}/build.zip`, `${buildPath}/build.zip`);
+											const stat = fs.statSync(`${buildPath}/build.zip`);
+											resolve({
+												info: {
+													size: stat.size,
+												},
+												stream: fs.createReadStream(`${buildPath}/build.zip`)
+											});
+										});
+										archive.pipe(output);
+										archive.directory(buildPath, 'homegames');
+
+										archive.finalize();
+
+									});
+								});
+							});
+						});
+					});
+				});
+			}
+		}).catch(err => {
+			reject(err);
+		})
+	} else {
+		const stat = fs.statSync(`${buildPath}/build.zip`)
+		resolve({
+			info: {
+				size: stat.size,
+			},
+			stream: fs.createReadStream(`${buildPath}/build.zip`)
+		});
+	}
+});
+
 const server = https.createServer(options, (req, res) => {
+	const downloadRegex = /download\/(\w+)\/(\w+)/g;
+	const downloadMatch = downloadRegex.exec(req.url);
     if (req.method === 'GET') {
         if (req.url === '/health') {
             res.writeHead(200, {'Content-Type': 'text/plain'});
@@ -73,7 +172,28 @@ const server = https.createServer(options, (req, res) => {
 			const responseStrings = builds.map(b => `Built ${b.commitHash} on ${b.datePublished}. <a href="${b.windowsUrl}" target="_blank">Windows<a> <a href="${b.macUrl}" target="_blank">Mac</a> <a href="${b.linuxUrl}" target="_blank">Linux</a>`);
 			const response = wrapHtml(responseStrings.join('<br /><br />'));
 		    res.writeHead(200, {'Content-Type': 'text/html'});
-		    res.end(response);// ${currentBuildInfo.commitHash} on ${currentBuildInfo.dateBuilt}`);
+		    res.end(response);
+		});
+	} else if (downloadMatch) {
+		const commitHash = downloadMatch[1];
+		getBuild(commitHash).then(buildData => {
+			res.writeHead(200, {
+				'Content-Type': 'application/zip',
+				'Content-Length': buildData.info.size,
+				'Content-Disposition': `attachment;filename="homegames.zip"`
+			});
+
+//			buildData.stream.pipe(gzip).pipe(res);
+			buildData.stream.pipe(res);
+		}).catch(err => {
+			if (err) {
+				console.error(err);
+				res.writeHead(500);
+				res.end();
+			} else {
+				res.writeHead(404);
+				res.end('Not found');
+			}
 		});
 	}
     } else {
@@ -208,6 +328,23 @@ const updateCurrentBuildInfo = (commitHash, s3Paths) => new Promise((resolve, re
 	});
 });
 
+const s3Get = (bucket, key) => new Promise((resolve, reject) => {
+	const s3 = new aws.S3();
+
+	const params = {
+		Bucket: bucket,
+		Key: key
+	};
+
+	s3.getObject(params, (err, data) => {
+		if (err) {
+			reject(err);
+		} else {
+			resolve(data.Body);
+		}
+	});
+});
+
 const uploadBuild = (buildPath) => new Promise((resolve, reject) => {
 	const linuxPath = buildPath + '/homegames-linux';
 	const windowsPath = buildPath + '/homegames-win.exe';
@@ -242,17 +379,44 @@ const uploadBuild = (buildPath) => new Promise((resolve, reject) => {
 	});
 });
 
+const runBuild = (path) => new Promise((resolve, reject) => {
+
+	const cmd = `npm run build --prefix ${path}`;
+	const build = spawn('npm', ['run', 'build', '--prefix', path]);
+
+	build.stdout.on('data', (data) => {
+		console.log("DATTTTA");
+		console.log(data.toString());	
+	});
+
+	build.stderr.on('data', (data) => {
+		console.log('errrrr');
+		console.log(data.toString());
+	});
+
+	build.on('close', (code) => {
+		console.log("cloooosed");
+		console.log(code);
+		resolve();
+	});
+//	
+});
+
 const updateBuild = (latestHash) => new Promise((resolve, reject) => {
 	const _update = () => {
 		downloadHomegames().then(path => {
 			console.log('downloaded to ' + path);
 			installNPMDependencies(path + '/homegames-main').then(() => {
-				console.log('installed dependencies');
-				buildPkg(path + '/homegames-main', config.BUILD_PATH).then(() => {
-					uploadBuild(config.BUILD_PATH).then(s3Paths => {
-						updateCurrentBuildInfo(latestHash, s3Paths).then((buildInfo) => {
-							console.log('built');
-							console.log(buildInfo);
+				console.log('installed dependencies wHAT');
+				runBuild(path + '/homegames-main').then(() => {
+					console.log('just ran build');
+					buildPkg(path + '/homegames-main', config.BUILD_PATH).then(() => {
+						console.log('built that');
+						uploadBuild(config.BUILD_PATH).then(s3Paths => {
+							updateCurrentBuildInfo(latestHash, s3Paths).then((buildInfo) => {
+								console.log('built');
+								console.log(buildInfo);
+							});
 						});
 					});
 				});
@@ -321,9 +485,8 @@ const getCurrentBuildInfo = () => new Promise((resolve, reject) => {
 	});
 });
 
-workflow();
 // 5 mins
-//setInterval(workflow, 5 * 60 * 1000)
+setInterval(workflow, 5 * 60 * 1000)
 
 const HTTPS_PORT = 443;
 
