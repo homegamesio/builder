@@ -80,7 +80,7 @@ const getLatestBuildHash = (stable = false) => new Promise((resolve, reject) => 
 			if (err) {
 				reject(err);
 			} else {
-				resolve(data.Items[0].commit_hash.S);
+                                resolve(data.Items[data.Items.length - 1].commit_hash.S);
 			}
 		});
 	}
