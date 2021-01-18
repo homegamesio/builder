@@ -161,7 +161,7 @@ const getBuild = (commitHash) => new Promise((resolve, reject) => {
 });
 
 const server = https.createServer(options, (req, res) => {
-	const downloadRegex = /download\/(\w+)\/(\w+)/g;
+	const downloadRegex = /download\/(\w+)/g;
 	const downloadMatch = downloadRegex.exec(req.url);
     if (req.method === 'GET') {
         if (req.url === '/health') {
@@ -169,7 +169,7 @@ const server = https.createServer(options, (req, res) => {
             res.end('ok');
         } else if (req.url === '/') {
 		getBuilds(10).then(builds => {
-			const responseStrings = builds.map(b => `Built ${b.commitHash} on ${b.datePublished}. <a href="${b.windowsUrl}" target="_blank">Windows<a> <a href="${b.macUrl}" target="_blank">Mac</a> <a href="${b.linuxUrl}" target="_blank">Linux</a>`);
+			const responseStrings = builds.map(b => `Built ${b.commitHash} on ${b.datePublished}. <a href="https://builder.homegames.io/download/${b.commitHash}" target="_blank">Download</a>`);
 			const response = wrapHtml(responseStrings.join('<br /><br />'));
 		    res.writeHead(200, {'Content-Type': 'text/html'});
 		    res.end(response);
@@ -183,7 +183,6 @@ const server = https.createServer(options, (req, res) => {
 				'Content-Disposition': `attachment;filename="homegames.zip"`
 			});
 
-//			buildData.stream.pipe(gzip).pipe(res);
 			buildData.stream.pipe(res);
 		}).catch(err => {
 			if (err) {
@@ -345,14 +344,14 @@ const s3Get = (bucket, key) => new Promise((resolve, reject) => {
 	});
 });
 
-const uploadBuild = (buildPath) => new Promise((resolve, reject) => {
+const uploadBuild = (commitHash, buildPath) => new Promise((resolve, reject) => {
 	const linuxPath = buildPath + '/homegames-linux';
 	const windowsPath = buildPath + '/homegames-win.exe';
 	const macPath = buildPath + '/homegames-macos';
 	
-	const linuxKey = config.S3_BUILD_PREFIX + '/homegames-linux';
-	const windowsKey = config.S3_BUILD_PREFIX + '/homegames-win.exe';
-	const macKey = config.S3_BUILD_PREFIX + '/homegames-macos';
+	const linuxKey = config.S3_BUILD_PREFIX + `/${commitHash}/homegames-linux`;
+	const windowsKey = config.S3_BUILD_PREFIX + `/${commitHash}/homegames-win.exe`;
+	const macKey = config.S3_BUILD_PREFIX + `/${commitHash}/homegames-macos`;
 
 	const options = { partSize: 10 * 1024 * 1024, queueSize: 1 };
 
@@ -412,7 +411,7 @@ const updateBuild = (latestHash) => new Promise((resolve, reject) => {
 					console.log('just ran build');
 					buildPkg(path + '/homegames-main', config.BUILD_PATH).then(() => {
 						console.log('built that');
-						uploadBuild(config.BUILD_PATH).then(s3Paths => {
+						uploadBuild(latestHash, config.BUILD_PATH).then(s3Paths => {
 							updateCurrentBuildInfo(latestHash, s3Paths).then((buildInfo) => {
 								console.log('built');
 								console.log(buildInfo);
@@ -498,3 +497,4 @@ http.createServer((req, res) => {
     res.writeHead(301, {'Location': 'https://' + req.headers['host'] + req.url });
     res.end();
 }).listen(HTTP_PORT);
+
