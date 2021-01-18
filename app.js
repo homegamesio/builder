@@ -77,7 +77,8 @@ const getBuilds = (limit = 10) => new Promise((resolve, reject) => {
 					commitHash: r.commit_hash.S,
 					windowsUrl: r.windows_url.S,
 					macUrl: r.mac_url.S,
-					linuxUrl: r.linux_url.S
+					linuxUrl: r.linux_url.S,
+					stable: r.stable && r.stable.BOOL
 				})
 			}
 
@@ -168,9 +169,10 @@ const server = https.createServer(options, (req, res) => {
             res.writeHead(200, {'Content-Type': 'text/plain'});
             res.end('ok');
         } else if (req.url === '/') {
+		const stableLabel = `<span style="background: green; color: white; padding: 4px; margin: 10px;">Stable</span>`;
 		getBuilds(10).then(builds => {
-			const responseStrings = builds.map(b => `Built ${b.commitHash} on ${b.datePublished}. <a href="https://builder.homegames.io/download/${b.commitHash}" target="_blank">Download</a>`);
-			const response = wrapHtml(responseStrings.join('<br /><br />'));
+			const buildDivs = builds.map(b => `<li style="margin-bottom: 2%">Built ${b.commitHash} on ${b.datePublished}. <a href="https://builder.homegames.io/download/${b.commitHash}" target="_blank">Download</a>${b.stable && stableLabel || ''}</li>`);
+			const response = wrapHtml(`<ul>${buildDivs.join('')}</ul>`);
 		    res.writeHead(200, {'Content-Type': 'text/html'});
 		    res.end(response);
 		});
@@ -497,4 +499,3 @@ http.createServer((req, res) => {
     res.writeHead(301, {'Location': 'https://' + req.headers['host'] + req.url });
     res.end();
 }).listen(HTTP_PORT);
-
