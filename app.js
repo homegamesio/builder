@@ -54,7 +54,9 @@ const getBuildInfo = (commitHash) => new Promise((resolve, reject) => {
 
 const getLatestBuildHash = (stable = false) => new Promise((resolve, reject) => {
 	if (!stable) {
-		getBuilds(1).then(builds => resolve(builds[0].commitHash));
+		getBuilds(1).then(builds => {
+			resolve(builds[0].commitInfo.commitHash);
+		});
 	} else {
 		const dynamoClient = new aws.DynamoDB({region: config.AWS_REGION});
 
@@ -222,8 +224,11 @@ const server = https.createServer(options, (req, res) => {
 			const stable = downloadMatch[2] === 'stable';
 
 			getLatestBuildHash(stable).then(commitHash => {
-			    res.writeHead(301, {'Location': 'https://builder.homegames.io/download/' + commitHash });
-			    res.end();
+				res.writeHead(301, {    
+					'Cache-Control': 'no-store',
+				   	'Location': 'https://builder.homegames.io/download/' + commitHash 
+				});
+			    	res.end();
 			});
 		} else {
 			const commitHash = downloadMatch[1];
