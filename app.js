@@ -104,13 +104,14 @@ const getBuilds = (limit = 10) => new Promise((resolve, reject) => {
 
 	dynamoClient.query(params, (err, data) => {
 		const response = data.Items.reduce((total, r) => {
-			if (r.commit_hash && r.date_published && r.windows_url && r.linux_url && r.mac_url) {
+			if ((r.commit_info || r.commit_hash) && r.date_published && r.windows_url && r.linux_url && r.mac_url) {
 				total.push({
 					datePublished: new Date(Number(r.date_published.N)),
-					commitHash: r.commit_hash.S,
 					windowsUrl: r.windows_url.S,
 					macUrl: r.mac_url.S,
 					linuxUrl: r.linux_url.S,
+					notes: r.notes && r.notes.S || '',
+					commitInfo: r.commit_info && JSON.parse(r.commit_info.S) || (r.commit_hash && {commitHash: r.commit_hash.S}) || '',
 					stable: r.stable && r.stable.BOOL
 				})
 			}
@@ -136,6 +137,8 @@ const getBuild = (commitHash) => new Promise((resolve, reject) => {
 	if (!fs.existsSync(buildPath)) {
 		fs.mkdirSync(buildPath);
 		getBuildInfo(commitHash).then(buildData => {
+			console.log('got build info');
+			console.log(buildData);
 			if(!buildData) {
 				reject();
 			} else {
@@ -204,8 +207,13 @@ const server = https.createServer(options, (req, res) => {
         } else if (req.url === '/') {
 		const stableLabel = `<span style="background: green; color: white; padding: 4px; margin: 10px;">Stable</span>`;
 		getBuilds(10).then(builds => {
-			const buildDivs = builds.map(b => `<li style="margin-bottom: 2%">Built ${b.commitHash} on ${b.datePublished}. <a href="https://builder.homegames.io/download/${b.commitHash}" target="_blank">Download</a>${b.stable && stableLabel || ''}</li>`);
-			const response = wrapHtml(`<ul>${buildDivs.join('')}</ul>`);
+			const buildDivs = builds.map(b => {
+				const commitInfo = b.commitInfo;
+				const commitDiv = `<div>Author: ${b.commitInfo.author || 'Unknown'}<br />${b.commitInfo.message || 'No message available'}</div>`;
+				const notesDiv = b.notes && `<div>Note: ${b.notes}</div>` || '';
+				return `<li style="margin-bottom: 3%">Built ${b.commitInfo.commitHash} on ${b.datePublished}. <a href="https://builder.homegames.io/download/${b.commitInfo.commitHash}" target="_blank">Download</a>${b.stable && stableLabel || ''}<div>${commitDiv}${notesDiv}</div></li>`;
+			});
+			const response = wrapHtml(`<ul style="list-style-type: none" >${buildDivs.join('')}</ul>`);
 		    res.writeHead(200, {'Content-Type': 'text/html'});
 		    res.end(response);
 		});
@@ -246,7 +254,7 @@ const server = https.createServer(options, (req, res) => {
 
 });
 
-const getLatestCommitHash = () => new Promise((resolve, reject) => {
+const getLatestCommitInfo = () => new Promise((resolve, reject) => {
 	https.get({
 		hostname: 'api.github.com',
 		path: '/repos/homegamesio/homegames/commits',
@@ -255,8 +263,13 @@ const getLatestCommitHash = () => new Promise((resolve, reject) => {
 		}
 	},(_response) => {
 		getReqBody(_response, (response) => {
-			const data = JSON.parse(response);
-			resolve(data[0].sha);
+			const data = JSON.parse(response)[0];
+			resolve({
+				author: data.author.login,
+				message: data.commit.message,
+				date: data.commit.author.date,
+				commitHash: data.sha
+			});
 		});
 	});
 });
@@ -339,7 +352,7 @@ const buildPkg = (packagePath, outPath) => new Promise((resolve, reject) => {
 
 });
 
-const updateCurrentBuildInfo = (commitHash, s3Paths) => new Promise((resolve, reject) => {
+const updateCurrentBuildInfo = (commitInfo, s3Paths) => new Promise((resolve, reject) => {
 	const dynamoClient = new aws.DynamoDB({region: config.AWS_REGION});
 
 	const params = {
@@ -348,8 +361,11 @@ const updateCurrentBuildInfo = (commitHash, s3Paths) => new Promise((resolve, re
 			'wat': {
 				'S': 'wat'
 			},
+			'commit_info': {
+				'S': JSON.stringify(commitInfo)
+			},
 			'commit_hash': {
-				'S': commitHash
+				'S': commitInfo.commitHash
 			},
 			'date_published': {
 				'N': '' + Date.now()
@@ -388,7 +404,8 @@ const s3Get = (bucket, key) => new Promise((resolve, reject) => {
 	});
 });
 
-const uploadBuild = (commitHash, buildPath) => new Promise((resolve, reject) => {
+const uploadBuild = (commitInfo, buildPath) => new Promise((resolve, reject) => {
+	const commitHash = commitInfo.commitHash;
 	const linuxPath = buildPath + '/homegames-linux';
 	const windowsPath = buildPath + '/homegames-win.exe';
 	const macPath = buildPath + '/homegames-macos';
@@ -445,8 +462,9 @@ const runBuild = (path) => new Promise((resolve, reject) => {
 //	
 });
 
-const updateBuild = (latestHash) => new Promise((resolve, reject) => {
+const updateBuild = (commitInfo) => new Promise((resolve, reject) => {
 	const _update = () => {
+		// todo: pass hash here
 		downloadHomegames().then(path => {
 			console.log('downloaded to ' + path);
 			installNPMDependencies(path + '/homegames-main').then(() => {
@@ -455,8 +473,8 @@ const updateBuild = (latestHash) => new Promise((resolve, reject) => {
 					console.log('just ran build');
 					buildPkg(path + '/homegames-main', config.BUILD_PATH).then(() => {
 						console.log('built that');
-						uploadBuild(latestHash, config.BUILD_PATH).then(s3Paths => {
-							updateCurrentBuildInfo(latestHash, s3Paths).then((buildInfo) => {
+						uploadBuild(commitInfo, config.BUILD_PATH).then(s3Paths => {
+							updateCurrentBuildInfo(commitInfo, s3Paths).then((buildInfo) => {
 								console.log('built');
 								console.log(buildInfo);
 							});
@@ -475,9 +493,9 @@ const updateBuild = (latestHash) => new Promise((resolve, reject) => {
 		});
 	};
 	
-	if (!latestHash) {
-		getLatestCommitHash().then(_latestHash => {
-			latestHash = _latestHash;
+	if (!commitInfo) {
+		getLatestCommitInfo().then(_commitInfo => {
+			commitInfo = _commitInfo;
 			_update();
 		});
 	} else {
@@ -489,19 +507,20 @@ const updateBuild = (latestHash) => new Promise((resolve, reject) => {
 
 const workflow = () => {
 	getCurrentBuildInfo().then(currentInfo => {
-		const currentHash = currentInfo.commitHash;
-		getLatestCommitHash().then(latestHash => {
-			if (latestHash != currentHash) {
+		const currentHash = currentInfo.commitInfo && currentInfo.commitInfo.commitHash;
+		getLatestCommitInfo().then(commitInfo => {
+			const latestCommitHash = commitInfo.commitHash;
+			if (latestCommitHash != currentHash) {
 				console.log('gonna update build');
-				console.log(latestHash);
-				updateBuild(latestHash).then(() => {
-					console.log('updated build to ' + latestHash);
+				console.log(latestCommitHash);
+				updateBuild(commitInfo).then(() => {
+					console.log('updated build to ' + latestCommitHash);
 				}).catch(err => {
 					console.log('couldnt update build');
 					console.log(err);
 				});
 			} else {
-				console.log('already built ' + latestHash);
+				console.log('already built ' + latestCommitHash);
 			}
 		}).catch(err => {
 			console.log('could not retrieve latest commit hash');
