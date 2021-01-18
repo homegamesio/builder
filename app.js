@@ -135,67 +135,71 @@ const download = (url, cb) => {
 };
 
 const getBuild = (commitHash) => new Promise((resolve, reject) => {
-	const buildPath = `${config.TEMP_DATA_DIR}/hg_builds/${commitHash}`;
-	if (!fs.existsSync(buildPath)) {
-		fs.mkdirSync(buildPath);
-		getBuildInfo(commitHash).then(buildData => {
-			console.log('got build info');
-			console.log(buildData);
-			if(!buildData) {
-				reject();
-			} else {
-				download(buildData.mac_url.S, macDataBuf => {
-					macDataBuf.pipe(fs.createWriteStream(`${buildPath}/homegames-macos`)).on('finish', () => {
-						download(buildData.windows_url.S, windowsDataBuf => {
-							windowsDataBuf.pipe(fs.createWriteStream(`${buildPath}/homegames-win.exe`)).on('finish', () => {
-								download(buildData.linux_url.S, linuxDataBuf => {
-									linuxDataBuf.pipe(fs.createWriteStream(`${buildPath}/homegames-linux`)).on('finish', () => {
-										fs.chmodSync(`${buildPath}/homegames-macos`, '555');
-										fs.chmodSync(`${buildPath}/homegames-win.exe`, '555');
-										fs.chmodSync(`${buildPath}/homegames-linux`, '555');
-										const archive = archiver('zip', {
+        if (!commitHash) {
+            reject('Bad commit hash');
+        } else {
+	    const buildPath = `${config.TEMP_DATA_DIR}/hg_builds/${commitHash}`;
+	    if (!fs.existsSync(buildPath)) {
+	    	fs.mkdirSync(buildPath);
+	    	getBuildInfo(commitHash).then(buildData => {
+	    		console.log('got build info');
+	    		console.log(buildData);
+	    		if(!buildData) {
+	    			reject();
+	    		} else {
+	    			download(buildData.mac_url.S, macDataBuf => {
+	    				macDataBuf.pipe(fs.createWriteStream(`${buildPath}/homegames-macos`)).on('finish', () => {
+	    					download(buildData.windows_url.S, windowsDataBuf => {
+	    						windowsDataBuf.pipe(fs.createWriteStream(`${buildPath}/homegames-win.exe`)).on('finish', () => {
+	    							download(buildData.linux_url.S, linuxDataBuf => {
+	    								linuxDataBuf.pipe(fs.createWriteStream(`${buildPath}/homegames-linux`)).on('finish', () => {
+	    									fs.chmodSync(`${buildPath}/homegames-macos`, '555');
+	    									fs.chmodSync(`${buildPath}/homegames-win.exe`, '555');
+	    									fs.chmodSync(`${buildPath}/homegames-linux`, '555');
+	    									const archive = archiver('zip', {
 
-										});
+	    									});
 
-										const tmpDir = '/tmp/' + Date.now()
+	    									const tmpDir = '/tmp/' + Date.now()
 
-										fs.mkdirSync(tmpDir);
+	    									fs.mkdirSync(tmpDir);
 
-										const output = fs.createWriteStream(`${tmpDir}/build.zip`);
-										output.on('close', () => {
+	    									const output = fs.createWriteStream(`${tmpDir}/build.zip`);
+	    									output.on('close', () => {
 
-											fs.renameSync(`${tmpDir}/build.zip`, `${buildPath}/build.zip`);
-											const stat = fs.statSync(`${buildPath}/build.zip`);
-											resolve({
-												info: {
-													size: stat.size,
-												},
-												stream: fs.createReadStream(`${buildPath}/build.zip`)
-											});
-										});
-										archive.pipe(output);
-										archive.directory(buildPath, 'homegames');
+	    										fs.renameSync(`${tmpDir}/build.zip`, `${buildPath}/build.zip`);
+	    										const stat = fs.statSync(`${buildPath}/build.zip`);
+	    										resolve({
+	    											info: {
+	    												size: stat.size,
+	    											},
+	    											stream: fs.createReadStream(`${buildPath}/build.zip`)
+	    										});
+	    									});
+	    									archive.pipe(output);
+	    									archive.directory(buildPath, 'homegames');
 
-										archive.finalize();
+	    									archive.finalize();
 
-									});
-								});
-							});
-						});
-					});
-				});
-			}
-		}).catch(err => {
-			reject(err);
-		})
-	} else {
-		const stat = fs.statSync(`${buildPath}/build.zip`)
-		resolve({
-			info: {
-				size: stat.size,
-			},
-			stream: fs.createReadStream(`${buildPath}/build.zip`)
-		});
+	    								});
+	    							});
+	    						});
+	    					});
+	    				});
+	    			});
+	    		}
+	    	}).catch(err => {
+	    		reject(err);
+	    	})
+	    } else {
+	    	const stat = fs.statSync(`${buildPath}/build.zip`)
+	    	resolve({
+	    		info: {
+	    			size: stat.size,
+	    		},
+	    		stream: fs.createReadStream(`${buildPath}/build.zip`)
+	    	});
+            }
 	}
 });
 
