@@ -52,6 +52,39 @@ const getBuildInfo = (commitHash) => new Promise((resolve, reject) => {
 	});
 });
 
+const getLatestBuildHash = (stable = false) => new Promise((resolve, reject) => {
+	if (!stable) {
+		getBuilds(1).then(builds => resolve(builds[0].commitHash));
+	} else {
+		const dynamoClient = new aws.DynamoDB({region: config.AWS_REGION});
+
+		const params = {
+			TableName: config.BUILD_TABLE_NAME,
+			ProjectionExpression: '#commitHash',
+			FilterExpression: '#stable= :stable',
+			ExpressionAttributeNames: {
+				'#stable': 'stable',
+				'#commitHash': 'commit_hash'
+			},
+			ExpressionAttributeValues: {
+				':stable': {
+					'BOOL': stable
+				}
+			}
+
+		};
+
+		dynamoClient.scan(params, (err, data) => {
+			if (err) {
+				reject(err);
+			} else {
+				resolve(data.Items[0].commit_hash.S);
+			}
+		});
+	}
+
+});
+
 const getBuilds = (limit = 10) => new Promise((resolve, reject) => {
 	const dynamoClient = new aws.DynamoDB({region: config.AWS_REGION});
 	const params = {
@@ -162,7 +195,7 @@ const getBuild = (commitHash) => new Promise((resolve, reject) => {
 });
 
 const server = https.createServer(options, (req, res) => {
-	const downloadRegex = /download\/(\w+)/g;
+	const downloadRegex = /download\/(\w+)\/?(\w+)?/g;
 	const downloadMatch = downloadRegex.exec(req.url);
     if (req.method === 'GET') {
         if (req.url === '/health') {
@@ -177,25 +210,34 @@ const server = https.createServer(options, (req, res) => {
 		    res.end(response);
 		});
 	} else if (downloadMatch) {
-		const commitHash = downloadMatch[1];
-		getBuild(commitHash).then(buildData => {
-			res.writeHead(200, {
-				'Content-Type': 'application/zip',
-				'Content-Length': buildData.info.size,
-				'Content-Disposition': `attachment;filename="homegames.zip"`
-			});
+		if (downloadMatch[1] === 'latest') {
+			const stable = downloadMatch[2] === 'stable';
 
-			buildData.stream.pipe(res);
-		}).catch(err => {
-			if (err) {
-				console.error(err);
-				res.writeHead(500);
-				res.end();
-			} else {
-				res.writeHead(404);
-				res.end('Not found');
-			}
-		});
+			getLatestBuildHash(stable).then(commitHash => {
+			    res.writeHead(301, {'Location': 'https://builder.homegames.io/download/' + commitHash });
+			    res.end();
+			});
+		} else {
+			const commitHash = downloadMatch[1];
+			getBuild(commitHash).then(buildData => {
+				res.writeHead(200, {
+					'Content-Type': 'application/zip',
+					'Content-Length': buildData.info.size,
+					'Content-Disposition': `attachment;filename="homegames.zip"`
+				});
+
+				buildData.stream.pipe(res);
+			}).catch(err => {
+				if (err) {
+					console.error(err);
+					res.writeHead(500);
+					res.end();
+				} else {
+					res.writeHead(404);
+					res.end('Not found');
+				}
+			});
+		}
 	}
     } else {
 	    res.writeHead(404);
