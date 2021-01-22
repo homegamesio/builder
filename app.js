@@ -217,7 +217,7 @@ const server = https.createServer(options, (req, res) => {
 				const commitInfo = b.commitInfo;
 				const commitDiv = `<div>Author: ${b.commitInfo.author || 'Unknown'}<br />${b.commitInfo.message || 'No message available'}</div>`;
 				const notesDiv = b.notes && `<div>Note: ${b.notes}</div>` || '';
-				return `<li style="margin-bottom: 3%">Built ${b.commitInfo.commitHash} on ${b.datePublished}. <a href="https://builder.homegames.io/download/${b.commitInfo.commitHash}" target="_blank">Download</a>${b.stable && stableLabel || ''}<div>${commitDiv}${notesDiv}</div></li>`;
+				return `<li style="margin-bottom: 6%">Built ${b.commitInfo.commitHash} on ${b.datePublished}. <a href="https://builder.homegames.io/download/${b.commitInfo.commitHash}" target="_blank">Download</a>${b.stable && stableLabel || ''}<div>${commitDiv}${notesDiv}</div></li>`;
 			});
 			const response = wrapHtml(`<ul style="list-style-type: none" >${buildDivs.join('')}</ul>`);
 		    res.writeHead(200, {'Content-Type': 'text/html'});
