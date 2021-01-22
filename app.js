@@ -126,7 +126,7 @@ const getBuilds = (limit = 10) => new Promise((resolve, reject) => {
 });
 
 const wrapHtml = (response) => {
-	return `<!doctype html><html><body>${response}</body></html>`;
+	return `<!doctype html><html><body><h2 style="text-align: center">Homegames Builds</h2><h3 style="text-align: center">Sometimes broken, always free</h3><h4 style="text-align: center; color: black"><a target="_blank" style="color: black" href="https://github.com/homegamesio/builder">Link to source code</a></h4>${response}</body></html>`;
 };
 
 const download = (url, cb) => {
@@ -170,10 +170,10 @@ const getBuild = (commitHash) => new Promise((resolve, reject) => {
 	    										fs.renameSync(`${tmpDir}/build.zip`, `${buildPath}/build.zip`);
 	    										const stat = fs.statSync(`${buildPath}/build.zip`);
 	    										resolve({
-	    											info: {
-	    												size: stat.size,
-	    											},
-	    											stream: fs.createReadStream(`${buildPath}/build.zip`)
+	    										info: {
+	    										size: stat.size,
+	    										},
+	    										stream: fs.createReadStream(`${buildPath}/build.zip`)
 	    										});
 	    									});
 	    									archive.pipe(output);
@@ -569,3 +569,4 @@ http.createServer((req, res) => {
     res.writeHead(301, {'Location': 'https://' + req.headers['host'] + req.url });
     res.end();
 }).listen(HTTP_PORT);
+
