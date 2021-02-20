@@ -1,0 +1,24 @@
+{
+  "name": "builder",
+  "version": "0.2.0",
+  "description": "homegames builds for you",
+  "main": "app.js",
+  "dependencies": {
+    "archiver": "^5.2.0",
+    "aws-sdk": "^2.848.0",
+    "unzipper": "^0.10.11"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/homegamesio/builder.git"
+  },
+  "author": "Joseph Garcia",
+  "bugs": {
+    "url": "https://github.com/homegamesio/builder/issues"
+  },
+  "homepage": "https://github.com/homegamesio/builder#readme"
+}
