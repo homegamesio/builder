@@ -1,18 +1,13 @@
+const process = require('process');
 const https = require('https');
 const http = require('http');
 const fs = require('fs');
 const unzipper = require('unzipper');
-const config = require('./config');
 const path = require('path');
 const aws = require('aws-sdk');
 const { spawn } = require('child_process');
 const zlib = require('zlib');
 const archiver = require('archiver');
-
-const options = {
-  key: fs.readFileSync(config.SSL_KEY_PATH),
-  cert: fs.readFileSync(config.SSL_CERT_PATH)
-};
 
 const getReqBody = (req, cb) => {
     let _body = '';
@@ -26,10 +21,10 @@ const getReqBody = (req, cb) => {
 };
 
 const getBuildInfo = (commitHash) => new Promise((resolve, reject) => {
-	const dynamoClient = new aws.DynamoDB({region: config.AWS_REGION});
+	const dynamoClient = new aws.DynamoDB({region: process.env.AWS_REGION});
 
 	const params = {
-		TableName: config.BUILD_TABLE_NAME,
+		TableName: process.env.BUILD_TABLE_NAME,
 		ProjectionExpression: '#commitHash, mac_url, windows_url, linux_url',
 		FilterExpression: '#commitHash = :commitHash',
 		ExpressionAttributeNames: {
@@ -58,10 +53,10 @@ const getLatestBuildHash = (stable = false) => new Promise((resolve, reject) => 
 			resolve(builds[0].commitInfo.commitHash);
 		});
 	} else {
-		const dynamoClient = new aws.DynamoDB({region: config.AWS_REGION});
+		const dynamoClient = new aws.DynamoDB({region: process.env.AWS_REGION});
 
 		const params = {
-			TableName: config.BUILD_TABLE_NAME,
+			TableName: process.env.BUILD_TABLE_NAME,
 			ProjectionExpression: '#commitHash',
 			FilterExpression: '#stable= :stable',
 			ExpressionAttributeNames: {
@@ -88,9 +83,9 @@ const getLatestBuildHash = (stable = false) => new Promise((resolve, reject) => 
 });
 
 const getBuilds = (limit = 10) => new Promise((resolve, reject) => {
-	const dynamoClient = new aws.DynamoDB({region: config.AWS_REGION});
+	const dynamoClient = new aws.DynamoDB({region: process.env.AWS_REGION});
 	const params = {
-		TableName: config.BUILD_TABLE_NAME,
+		TableName: process.env.BUILD_TABLE_NAME,
 		KeyConditionExpression: 'wat = :wat and date_published <= :now',
 		Limit: limit,
 		ScanIndexForward: false,
@@ -138,7 +133,7 @@ const getBuild = (commitHash) => new Promise((resolve, reject) => {
         if (!commitHash) {
             reject('Bad commit hash');
         } else {
-	    const buildPath = `${config.TEMP_DATA_DIR}/hg_builds/${commitHash}`;
+	    const buildPath = `${process.env.TEMP_DATA_DIR}/hg_builds/${commitHash}`;
 	    if (!fs.existsSync(buildPath)) {
 	    	fs.mkdirSync(buildPath);
 	    	getBuildInfo(commitHash).then(buildData => {
@@ -203,7 +198,7 @@ const getBuild = (commitHash) => new Promise((resolve, reject) => {
 	}
 });
 
-const server = https.createServer(options, (req, res) => {
+const server = http.createServer((req, res) => {
 	const downloadRegex = /download\/(\w+)\/?(\w+)?/g;
 	const downloadMatch = downloadRegex.exec(req.url);
     if (req.method === 'GET') {
@@ -362,10 +357,10 @@ const buildPkg = (packagePath, outPath) => new Promise((resolve, reject) => {
 });
 
 const updateCurrentBuildInfo = (commitInfo, s3Paths) => new Promise((resolve, reject) => {
-	const dynamoClient = new aws.DynamoDB({region: config.AWS_REGION});
+	const dynamoClient = new aws.DynamoDB({region: process.env.AWS_REGION});
 
 	const params = {
-		TableName: config.BUILD_TABLE_NAME,
+		TableName: process.env.BUILD_TABLE_NAME,
 		Item: {
 			'wat': {
 				'S': 'wat'
@@ -419,9 +414,9 @@ const uploadBuild = (commitInfo, buildPath) => new Promise((resolve, reject) => 
 	const windowsPath = buildPath + '/homegames-win.exe';
 	const macPath = buildPath + '/homegames-macos';
 	
-	const linuxKey = config.S3_BUILD_PREFIX + `/${commitHash}/homegames-linux`;
-	const windowsKey = config.S3_BUILD_PREFIX + `/${commitHash}/homegames-win.exe`;
-	const macKey = config.S3_BUILD_PREFIX + `/${commitHash}/homegames-macos`;
+	const linuxKey = process.env.S3_BUILD_PREFIX + `/${commitHash}/homegames-linux`;
+	const windowsKey = process.env.S3_BUILD_PREFIX + `/${commitHash}/homegames-win.exe`;
+	const macKey = process.env.S3_BUILD_PREFIX + `/${commitHash}/homegames-macos`;
 
 	const options = { partSize: 10 * 1024 * 1024, queueSize: 1 };
 
@@ -431,9 +426,9 @@ const uploadBuild = (commitInfo, buildPath) => new Promise((resolve, reject) => 
 	const windowsReadStream = fs.createReadStream(windowsPath);
 	const macReadStream = fs.createReadStream(macPath);
 
-	const linuxParams = { Bucket: config.S3_BUCKET, Key: linuxKey, Body: linuxReadStream, ACL: 'public-read', ContentType: 'application/x-binary' };
-	const windowsParams = { Bucket: config.S3_BUCKET, Key: windowsKey, Body: windowsReadStream, ACL: 'public-read', ContentType: 'application/x-binary' };
-	const macParams = { Bucket: config.S3_BUCKET, Key: macKey, Body: macReadStream, ACL: 'public-read', ContentType: 'application/x-binary' };
+	const linuxParams = { Bucket: process.env.S3_BUCKET, Key: linuxKey, Body: linuxReadStream, ACL: 'public-read', ContentType: 'application/x-binary' };
+	const windowsParams = { Bucket: process.env.S3_BUCKET, Key: windowsKey, Body: windowsReadStream, ACL: 'public-read', ContentType: 'application/x-binary' };
+	const macParams = { Bucket: process.env.S3_BUCKET, Key: macKey, Body: macReadStream, ACL: 'public-read', ContentType: 'application/x-binary' };
 
 	s3Client.upload(linuxParams, (err, linuxData) => {
 		s3Client.upload(windowsParams, (err, windowsData) => {
@@ -480,9 +475,9 @@ const updateBuild = (commitInfo) => new Promise((resolve, reject) => {
 				console.log('installed dependencies wHAT');
 				runBuild(path + '/homegames-main').then(() => {
 					console.log('just ran build');
-					buildPkg(path + '/homegames-main', config.BUILD_PATH).then(() => {
+					buildPkg(path + '/homegames-main', process.env.BUILD_PATH).then(() => {
 						console.log('built that');
-						uploadBuild(commitInfo, config.BUILD_PATH).then(s3Paths => {
+						uploadBuild(commitInfo, process.env.BUILD_PATH).then(s3Paths => {
 							updateCurrentBuildInfo(commitInfo, s3Paths).then((buildInfo) => {
 								console.log('built');
 								console.log(buildInfo);
@@ -559,14 +554,8 @@ const getCurrentBuildInfo = () => new Promise((resolve, reject) => {
 // 5 mins
 setInterval(workflow, 5 * 60 * 1000)
 
-const HTTPS_PORT = 443;
-
-server.listen(HTTPS_PORT);
-
 const HTTP_PORT = 80;
 
-http.createServer((req, res) => {
-    res.writeHead(301, {'Location': 'https://' + req.headers['host'] + req.url });
-    res.end();
-}).listen(HTTP_PORT);
+server.listen(HTTP_PORT);
+
 
