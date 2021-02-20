@@ -100,23 +100,28 @@ const getBuilds = (limit = 10) => new Promise((resolve, reject) => {
 	};
 
 	dynamoClient.query(params, (err, data) => {
-		const response = data.Items.reduce((total, r) => {
-			if ((r.commit_info || r.commit_hash) && r.date_published && r.windows_url && r.linux_url && r.mac_url) {
-				total.push({
-					datePublished: new Date(Number(r.date_published.N)),
-					windowsUrl: r.windows_url.S,
-					macUrl: r.mac_url.S,
-					linuxUrl: r.linux_url.S,
-					notes: r.notes && r.notes.S || '',
-					commitInfo: r.commit_info && JSON.parse(r.commit_info.S) || (r.commit_hash && {commitHash: r.commit_hash.S}) || '',
-					stable: r.stable && r.stable.BOOL
-				})
-			}
+                if (err) {
+                    console.error(err);
+                    resolve([])
+                } else {
+		    const response = data.Items.reduce((total, r) => {
+		    	if ((r.commit_info || r.commit_hash) && r.date_published && r.windows_url && r.linux_url && r.mac_url) {
+		    		total.push({
+		    			datePublished: new Date(Number(r.date_published.N)),
+		    			windowsUrl: r.windows_url.S,
+		    			macUrl: r.mac_url.S,
+		    			linuxUrl: r.linux_url.S,
+		    			notes: r.notes && r.notes.S || '',
+		    			commitInfo: r.commit_info && JSON.parse(r.commit_info.S) || (r.commit_hash && {commitHash: r.commit_hash.S}) || '',
+		    			stable: r.stable && r.stable.BOOL
+		    		})
+		    	}
 
-			return total;
-		}, []);
-		
-		resolve(response);
+		    	return total;
+		    }, []);
+		    
+		    resolve(response);
+                }
 	});
 });
 
