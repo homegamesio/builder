@@ -49,9 +49,9 @@ const getBuildInfo = (commitHash) => new Promise((resolve, reject) => {
 });
 
 const getBuilds = (limit, stable) => new Promise((resolve, reject) => {
-	const dynamoClient = new aws.DynamoDB({region: 'us-west-2'});//process.env.AWS_REGION});
+	const dynamoClient = new aws.DynamoDB({region: process.env.AWS_REGION});
 	const params = {
-		TableName: 'homegames_builds',//process.env.BUILD_TABLE_NAME,
+		TableName: process.env.BUILD_TABLE_NAME,
 		KeyConditionExpression: 'wat = :wat and date_published <= :now',
 		ScanIndexForward: false,
 		ExpressionAttributeValues: {
@@ -178,11 +178,24 @@ const server = http.createServer((req, res) => {
             res.writeHead(200, {'Content-Type': 'text/plain'});
             res.end('ok updated');
         } else if (req.url === '/latest') {
-            console.log('you want latest');
+            getBuilds(1).then(builds => {
+                res.writeHead(200, {
+                    'Content-Type': 'application/json'
+                });
+                res.end(JSON.stringify(builds[0])); 
+            });
         } else if (req.url === '/latest/stable') {
-            console.log('want the latest stable');
+            getBuilds(1, true).then(builds => {
+                res.writeHead(200, {
+                    'Content-Type': 'application/json'
+                });
+                res.end(JSON.stringify(builds[0])); 
+            });
+ 
         } else if (req.url.startsWith('/')) {
             const query = getReqQuery(req);
+
+            console.log(query);
 
             const queryLimit = query.limit && Number(query.limit);
 
@@ -195,8 +208,6 @@ const server = http.createServer((req, res) => {
                 res.end(JSON.stringify({builds}));
             });
 
-            console.log(query);
-            console.log('you want last n things with an offset of x');
         } else {
 	    res.writeHead(404);
 	    res.end('Not found');
