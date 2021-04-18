@@ -209,7 +209,7 @@ const server = http.createServer((req, res) => {
     if (req.method === 'GET') {
         if (req.url === '/health') {
             res.writeHead(200, {'Content-Type': 'text/plain'});
-            res.end('ok');
+            res.end('ok updated');
         } else if (req.url === '/') {
 		const stableLabel = `<span style="background: green; color: white; padding: 4px; margin: 10px;">Stable</span>`;
 		getBuilds(10).then(builds => {
@@ -557,7 +557,7 @@ const getCurrentBuildInfo = () => new Promise((resolve, reject) => {
 });
 
 // 5 mins
-setInterval(workflow, 5 * 60 * 1000)
+//setInterval(workflow, 5 * 60 * 1000)
 
 const HTTP_PORT = 80;
 
