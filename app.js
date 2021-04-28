@@ -173,6 +173,9 @@ const getBuild = (commitHash) => new Promise((resolve, reject) => {
 const getReqQuery = (req) => url.parse(req.url,true).query;
 
 const server = http.createServer((req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Headers', '*');
+
     if (req.method === 'GET') {
         if (req.url === '/health') {
             res.writeHead(200, {'Content-Type': 'text/plain'});
